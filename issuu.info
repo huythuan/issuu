@@ -1,0 +1,15 @@
+name = Issuu
+description = Enables integration with issuu.com
+package = Other
+core = 7.x
+dependencies[] = field
+dependencies[] = imagemagick
+
+
+files[] = issuu.install
+files[] = issuu.module
+
+version = "7.28"
+core = "7.x"
+project = "issuu"
+datestamp = "1380626736"

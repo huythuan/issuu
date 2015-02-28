@@ -1,0 +1,104 @@
+<?php
+
+/**
+ * Implements hook_field_schema().
+ */
+function issuu_field_schema($field) {
+  switch ($field['type']) {
+    case 'issuu':
+      $columns = array(
+        'doc_id' => array('type' => 'varchar', 'length' => 150, 'not null' => FALSE),
+        'access_key' => array('type' => 'varchar', 'length' => 150, 'not null' => FALSE),
+        'fid' => array('type' => 'int', 'length' => 10, 'not null' => FALSE),
+      );
+      $indexes = array(
+        'fid' => array('fid'),
+        'doc_id' => array('doc_id'),
+      );
+      $foreign_keys = array(
+        'fid' => array(
+          'table' => 'file_managed',
+          'columns' => array('fid' => 'fid'),
+        ),
+      );
+      break;
+  }
+  
+  return array(
+    'columns' => $columns,
+    'indexes' => $indexes,
+    'foreign keys' => $foreign_keys,
+  );
+}
+
+/**
+ * Implementation of hook_install()
+ */
+function issuu_install() {
+  drupal_set_message(t("Issuu Module Is Not Going To Work Until You Enter API Key And Secret Code " . l("configuration", "admin/config/media/issuu") . "."), 'warning');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function issuu_uninstall() {
+  variable_del('issuu_api_key');
+  variable_del('issuu_api_secret');
+  variable_del('issuu_access_files');
+  variable_del('issuu_delete_local');
+  variable_del('issuu_local_filepath');
+  variable_del('issuu_allow_sharing');
+  variable_del('issuu_reader_height');
+  variable_del('issuu_reader_width');
+  variable_del('issuu_reader_mode');
+  variable_del('issuu_reader_page');
+}
+/**
+ * Implements hook_schema().
+ */
+function issuu_schema() {
+  $schema['issuuthumb'] = array(
+    'fields' => array(
+      'pdffid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+
+      'fid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * A hook update that goes through every user and performs an action
+ *
+ */
+function issuu_update_7001(){
+	$schema['issuuthumb'] = array(
+    'fields' => array(
+      'pdffid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+
+      'fid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+  );
+  db_create_table('issuuthumb',$schema['issuuthumb']);
+}

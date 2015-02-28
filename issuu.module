@@ -1,0 +1,923 @@
+<?php
+define('ISSUU_PLATFORM_CURL', 'curl');
+define('ISSUU_PLATFORM_FOPEN', 'fopen');
+define('ISSUU_PLATFORM_EITHER', 'either');
+/**
+ * Implementation of hook_menu().
+ */
+function issuu_menu() {
+  $items = array();
+  $items['admin/config/media/issuu'] = array(
+    'title' => 'issuu',
+    'description' => 'Configure issuu integration with issuu.com.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('issuu_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+  );
+  return $items;
+}
+
+/**
+ * Configuration settings form.
+ */
+function issuu_admin_settings() {
+  $form['issuu_server'] = array(
+    '#collapsible'   => TRUE,
+    '#title'         => t('issuu.com API information'),
+    '#type'          => 'fieldset',
+  );
+  $form['issuu_server']['issuu_api_key'] = array(
+    '#default_value' => variable_get('issuu_api_key', NULL),
+    '#title'         => t('issuu.com API key'),
+    '#type'          => 'textfield',
+  );
+  $form['issuu_server']['issuu_api_secret'] = array(
+    '#default_value' => variable_get('issuu_api_secret', NULL),
+    '#title'         => t('issuu.com API secret'),
+    '#type'          => 'textfield',
+  );
+
+  $form['issuu_server']['issuu_local_filepath'] = array(
+    '#default_value' => variable_get('issuu_local_filepath', NULL),
+    '#title'         => t('File directory'),
+    '#type'          => 'textfield',
+    '#description'   => t('Optional subdirectory within the upload destination where files will be stored. Do not include preceding or trailing slashes.'),
+  );
+  
+  $form['issuu_reader'] = array(
+    '#collapsible'   => TRUE,
+    '#title'         => t('issuu.com Reader Configuration Options'),
+    '#type'          => 'fieldset',
+    '#description'   => t('Optional settings for the embedded Javascript issuu Reader.'),
+  );
+  $form['issuu_reader']['issuu_reader_height'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Height'),
+    '#description' => t("You can set a default height for the player in pixels. If this is not specified, issuu Reader will attempt to size itself correctly for the webpage it's embedded in."),
+    '#size' => 5,
+    '#maxlength' => 5,
+    '#default_value' => variable_get('issuu_reader_height', ''),
+  );
+  $form['issuu_reader']['issuu_reader_width'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Width'),
+    '#description' => t("You can set a default width for the player in pixels. If this is not specified, issuu Reader will attempt to size itself correctly for the webpage it's embedded in."),
+    '#size' => 5,
+    '#maxlength' => 5,
+    '#default_value' => variable_get('issuu_reader_width', ''),
+  );
+  $form['issuu_reader']['issuu_reader_page'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Default Start Page'),
+    '#description' => t("You can use this to scroll issuu Reader to a default start page. Defaults to 1."),
+    '#size' => 10,
+    '#maxlength' => 10,
+    '#default_value' => variable_get('issuu_reader_page', ''),
+  );
+  $form['issuu_teaser'] = array(
+    '#collapsible'   => TRUE,
+    '#title'         => t('issuu.com Teaser Configuration Options'),
+    '#type'          => 'fieldset',
+    '#description'   => t('Optional settings for the teaser sizing.'),
+  );
+  $form['issuu_teaser']['issuu_teaser_width'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Width'),
+    '#description' => t("You can set a default width for the teaser in pixels"),
+    '#size' => 5,
+    '#maxlength' => 5,
+    '#default_value' => variable_get('issuu_teaser_width', '250'),
+  );
+  $form['issuu_teaser']['issuu_teaser_height'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Height'),
+    '#description' => t("You can set a default height for the player in pixels."),
+    '#size' => 5,
+    '#maxlength' => 5,
+    '#default_value' => variable_get('issuu_teaser_height', '250'),
+  );
+
+  return system_settings_form($form);
+}
+
+/**************************************************************************
+ * Field Type API: Basic Hooks
+ **************************************************************************/
+
+/**
+ * Implements hook_field_info().
+ */
+function issuu_field_info() {
+  return array(
+    'issuu' => array(
+      'label' => t('issuu File'),
+      'description' => t('This field stores a file to be stored on issuu.'),
+      'default_widget' => 'issuu_file',
+      'default_formatter' => 'issuu_default',
+    ),
+  );
+}
+
+
+
+/**************************************************************************
+ * Field Type API: Instance
+ **************************************************************************/
+
+/**
+ * Implements hook_field_instance_settings_form
+ */
+function issuu_field_instance_settings_form($field, $instance) {
+  if ($field['type'] == 'issuu') {
+    $settings = $instance['settings'];
+    
+    $form = array();
+
+    if (!array_key_exists('issuu_local_storage_directory', $settings)) {
+      $issuu_local_storage_directory_default = '';
+    }
+    else {
+      $issuu_local_storage_directory_default = $settings['issuu_local_storage_directory'];
+    }
+    $form['issuu_local_storage_directory'] = array(
+      '#title' => t('issuu File Directory'),
+      '#description' => t('Optional subdirectory within the upload destination where files you upload to issuu will be stored locally. Do not include preceding or trailing slashes.'),
+      '#type' => 'textfield',
+      '#default_value' => $issuu_local_storage_directory_default,
+    );
+
+    if (!array_key_exists('issuu_uri_scheme', $settings)) {
+      $issuu_uri_scheme = 'public';
+    }
+    else {
+      $issuu_uri_scheme = $settings['issuu_uri_scheme'];
+    }
+    
+    $form['issuu_uri_scheme'] = array(
+      '#type' => 'radios',
+      '#title' => t('Public or Private Field Storage'),
+      '#description' => t('Should the files stored locally be accessible in a publicly available directory? Note: Private storage will increase the processing resources needed.'),
+      '#options' => array('public' => 'Public', 'private' => 'Private'),
+      '#default_value' => $issuu_uri_scheme,
+    );
+    
+    if (!array_key_exists('delete_issuu_doc_on_delete', $settings)) {
+
+      $delete_issuu_doc_on_delete = FALSE;
+    }
+    else {
+      $delete_issuu_doc_on_delete = $settings['delete_issuu_doc_on_delete'];
+    }
+    
+    return $form;
+  }
+  
+}
+
+/**************************************************************************
+ * Field Type API: Widget
+ **************************************************************************/
+
+/**
+ * Implements hook_field_widget_info()
+ */
+function issuu_field_widget_info() {
+  $widgets = array();
+
+  $widgets['issuu_file'] = array(
+    'label' => t('issuu File'),
+    'field types' => array('issuu'),
+  );
+  return $widgets;
+}
+
+/**
+ * Implements hook_field_widget_form()
+ */
+function issuu_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  //print_r($items);
+  $settings = $instance['settings'];
+  
+  // file upload widget
+  if ($instance['widget']['type'] == 'issuu_file') {
+    // the field_widget_form expects to have the file directory set
+    if (!array_key_exists('issuu_local_storage_directory', $instance['settings'])) {
+      $instance['settings']['file_directory'] = '';
+    }
+    else {
+      $instance['settings']['file_directory'] = $instance['settings']['issuu_local_storage_directory'];
+    }
+    
+    // the field_widget_form expects to have the uri_scheme set
+    if (!array_key_exists('issuu_uri_scheme', $instance['settings'])) {
+      $field['settings']['uri_scheme'] = 'public';
+    }
+    else {
+      $field['settings']['uri_scheme'] = $instance['settings']['issuu_uri_scheme'];
+    }
+    
+    // The progress indicator type is required by the field_widget_form
+    $instance['widget']['settings']['progress_indicator'] = 'throbber';
+    
+    $elements = file_field_widget_form($form, $form_state, $field, $instance, $langcode, $items, $delta, $element);
+    
+    // add a process callback to handle clicking the remove button
+    $elements[$delta]['#process'][] = 'issuu_field_widget_process';
+    
+    // Ensure this is a valid issuu file type.
+    $supported_extensions = array('pdf', 'txt', 'ps', 'rtf', 'epub', 'odt', 'odp', 'ods', 'odg', 'odf', 'sxw', 'sxc', 'sxi', 'sxd', 'doc', 'ppt', 'pps', 'xls', 'docx', 'pptx', 'ppsx', 'xlsx', 'tif', 'tiff');
+    $extensions = isset($elements[$delta]['#upload_validators']['file_validate_extensions'][0]) ? $elements[$delta]['#upload_validators']['file_validate_extensions'][0] : implode(' ', $supported_extensions);
+    $extensions = array_intersect(explode(' ', $extensions), $supported_extensions);
+    $elements[$delta]['#upload_validators']['file_validate_extensions'][0] = implode(' ', $extensions);
+    
+  }// END file upload widget
+  
+  
+  // Doc ID and Access Key Manual (text fields) entry widget
+  if ($instance['widget']['type'] == 'issuu_docid_accesskey') {
+    // Get the entity and load the items (to get doc_id and access_key)
+    // important when these values have been manually entered.
+    // But check if it has been set (it will not have been if it is on the 
+    // instance settings page).
+    if (!empty($form_state['node'])) {
+      $entity = $form_state['node'];
+      if (!empty($entity->vid)) {
+        $items = issuu_entity_load_field($entity, $field);
+      }
+    }
+    
+    // document id element - for previously uploaded documents
+    // set default value
+    if (empty($items) || !array_key_exists('doc_id', $items[0])) {
+      $doc_id_defualt = '';
+    }
+    else {
+      $doc_id_defualt = $items[0]['doc_id'];
+    }
+
+    $elements['doc_id'] = array();
+    $elements['doc_id'] += array(
+      '#title' => t('issuu Document ID'),
+      '#description' => t('If you already have a issuu Document ID from an upload you did directly to issuu.com enter it here. Otherwise, this will be created automatically upon upload of your file.'),
+      '#type' => 'textfield',
+      '#default_value' => $doc_id_defualt,
+      '#maxlength' => 100,
+      '#access' => user_access('administer issuu document ID'),
+    );
+    // access key element - for previously uploaded documents
+    // set default value
+    if (empty($items) || !array_key_exists('access_key', $items[0])) {
+      $access_key_defualt = '';
+    }
+    else {
+      $access_key_defualt = $items[0]['access_key'];
+    }
+    $elements['access_key'] = array();
+    $elements['access_key'] += array(
+      '#title' => t('issuu Document Access Key'),
+      '#description' => t('If you already have a issuu Document Access Key from an upload you did directly to issuu.com enter it here. Otherwise, this will be created automatically upon upload of your file.'),
+      '#type' => 'textfield',
+      '#default_value' => $access_key_defualt,
+      '#maxlength' => 100,
+      '#access' => user_access('administer issuu access key'),
+    );
+  }// END Doc ID and Access Key Manual (text fields) entry widget
+  
+  return $elements;
+}
+
+/**
+ * widget process callback function for file upload field
+ */
+function issuu_field_widget_process($element, &$form_state, $form) {
+  
+  // If the Remove button was clicked, handle deletion of the file.
+  if (!empty($form_state['clicked_button']) && $form_state['clicked_button']['#value'] == "Remove") {
+    
+    // Set up a field array to be used in loading the other pieces of field info
+    $field = array();
+    $field['field_name'] = $element['#field_name'];
+    
+    // Get the field info (settings) so we can check them later
+    $field_info = field_info_instance($element['#entity_type'], $field['field_name'], $element['#bundle']);
+    
+    // We need the node so we can load up a file object for the file being used
+    $node = $form_state['node'];
+    //$file = file_load($node->field_issuu['und'][0]['fid']);
+	$file = file_load($node->{$field_info['field_name']}[LANGUAGE_NONE][0]['fid']);//Changes made by geek this line replaces the above line.
+    $file_usage = file_usage_list($file);
+    
+    // If this file is temporary or it is in use by the issuu module
+    // proceed with deleing the file usage record remove from issuu
+    if ($file->status == 0 || !empty($file_usage['issuu'])) {
+      
+      // Get the associated doc_id and access_key for issuu removal
+      $items = issuu_entity_load_field($node, $field);
+      foreach ($items as $delta => $item) {
+        // Remove file from issuu only of the settings allow it
+        if (empty($field_info['settings']['delete_issuu_doc_on_delete'])) {
+			// Edited by Geek
+          issuu_api_delete($item['doc_id']);
+        }
+      }
+      
+      // Remove local file and usage record
+      list($id, $vid, $bundle) = entity_extract_ids($element['#entity_type'], $node);
+      file_usage_delete($file, 'issuu', $element['#entity_type'], $id);
+      file_delete($file);
+    }
+  }
+  
+  return $element;
+}
+
+
+/**************************************************************************
+ * Field API: Processing
+ **************************************************************************/
+/**
+ * Implements hook_field_validate()
+ */
+function issuu_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  
+  // Validation for the doc_id and access_key manual entry widget
+  if ($instance['widget']['type'] == 'issuu_docid_accesskey') {
+    
+    foreach ($items as $delta => $item) {
+      if (empty($item['doc_id']) && !empty($item['access_key'])) {
+        $errors[$field['field_name']][$langcode][$delta][] = array(
+          'error' => 'You must enter the Document ID associated with the Access Key.', 
+          'message' => t('%name: Missing Document ID.', array('%name' => $instance['label'])),
+        );
+      }
+      if (!empty($item['doc_id']) && empty($item['access_key'])) {
+        $errors[$field['field_name']][$langcode][$delta][] = array(
+          'error' => 'You must enter the Access Key associated with the Document ID.', 
+          'message' => t('%name: Missing Access Key.', array('%name' => $instance['label'])),
+        );
+      }
+    }
+  }
+}
+
+/** 
+ * Implements hook_field_is_empty(). 
+ */ 
+function issuu_field_is_empty($item, $field) {
+  if (isset($item['doc_id'])) {
+    return empty($item['doc_id']);
+  }
+  if (isset($item['access_key'])) {
+    return empty($item['access_key']);
+  }
+  if (isset($item[0]['fid'])) {
+    return empty($item[0]['fid']);
+  }
+  return FALSE;
+}
+
+
+
+/**
+ * Implements hook_field_presave()
+ */
+function issuu_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+    
+    if ($instance['widget']['type'] == 'issuu_file' && $field['type'] == 'issuu') {
+      // For each of the items get the fid into the right places 
+      // so it is saved to the field correctly
+      foreach ($items as $delta => $item) {
+        // handle fid if one exists and set to null if it doesn't
+        if (!empty($item[0]['fid'])) {
+          // Set the fid in the entity so it gets saved in the field table as well.
+          $entity->{$field['field_name']}[$langcode][$delta]['fid'] = $item[$delta]['fid'];
+          // Just covering all the bases by adding this to the item as well
+          $items[$delta]['fid'] = $item[0]['fid'];
+
+          // Upload the file to issuu, retrieve the doc_id and access_key
+          // Set the local field values for the doc_id and access_key
+          $file = file_load($item[0]['fid']);
+          $results = issuu_api_upload($file, $item['doc_id'] = NULL, $entity);
+
+          // Set the doc_id and access_key variables with the result values
+          if (!empty($results['doc_id'][0])) {
+            $items[$delta]['doc_id'] = $results['doc_id'][0];
+          }
+          if (!empty($results['access_key'][0])) {
+            $items[$delta]['access_key'] = $results['access_key'][0];
+          }
+
+        }
+        else {
+          $items[$delta]['fid'] = NULL;
+        }
+
+        // handle empty doc id
+        if (empty($items[$delta]['doc_id'])) {
+          $items[$delta]['doc_id'] = NULL;
+          $entity->{$field['field_name']}[$langcode][$delta] = $items[$delta]['doc_id'];
+        } 
+
+      }// foreach ($items as $delta => $item)
+    }// END if ($instance['widget']['type'] == 'issuu_file' && $field['type'] == 'issuu')
+}
+
+/**
+ * Implements hook_field_load()
+ */
+function issuu_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  file_field_load($entity_type, $entities, $field, $instances, $langcode, $items, $age);
+}
+
+/**
+ * Implements hook_field_insert()
+ */
+function issuu_field_insert($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  foreach ($items as $delta => $item) {
+    
+    if (!empty($item[$delta]['fid'])) {
+      // Make the file permanent.
+      $file = file_load($item[$delta]['fid']);
+      $file->status = FILE_STATUS_PERMANENT;
+      file_save($file);
+      //  Get the id
+      list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+      // Need to add an entry in the file_usage table.
+      file_usage_add($file, 'issuu', $entity_type, $id);
+    }
+  }
+  
+}
+
+/**
+ * Implements hook_field_update
+ */
+function issuu_field_update($entity_type, $entity, $field, $instance, $langcode, &$items) {
+    
+    // Update field info for issuu_file widget
+    if ($instance['widget']['type'] == 'issuu_file') {
+      list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+      // On new revisions, all files are considered to be a new usage and no
+      // deletion of previous file usages are necessary.
+      if (!empty($entity->revision)) {
+        foreach ($items as $item) {
+          $file = (object) $item;
+          $file->status = FILE_STATUS_PERMANENT;
+          file_save($file);
+          //  Get the id
+          list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+          // Need to add an entry in the file_usage table.
+          file_usage_add($file, 'issuu', $entity_type, $id);
+        }
+        return;
+      }
+
+      // Build a display of the current FIDs.
+      $current_fids = array();
+      foreach ($items as $item) {
+        $current_fids[] = $item['fid'];
+      }
+
+      // Create a bare-bones entity so that we can load its previous values.
+      $original = entity_create_stub_entity($entity_type, array($id, $vid, $bundle));
+      field_attach_load($entity_type, array($id => $original), FIELD_LOAD_CURRENT, array('field_id' => $field['id']));
+
+      // Compare the original field values with the ones that are being saved.
+      $original_fids = array();
+      if (!empty($original->{$field['field_name']}[$langcode])) {
+        foreach ($original->{$field['field_name']}[$langcode] as $original_item) {
+          $original_fids[] = $original_item['fid'];
+          if (isset($original_item['fid']) && !in_array($original_item['fid'], $current_fids)) {
+            // To prevent the file field from deleting files it doesn't know about, check
+            // the file reference count. Temporary files can be deleted because they
+            // are not yet associated with any content at all.
+            $file = (object) $original_item;
+            $file_usage = file_usage_list($file);
+            if ($file->status == 0 || !empty($file_usage['issuu'])) {
+              // Remove file from issuu
+              if (issuu_api_delete($original_item['filename'])) {
+                drupal_set_message(t('The file has been removed from issuu.'));
+                // Remove from local
+                list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+                file_usage_delete($file, 'issuu', $entity_type, $id);
+                file_delete($file);
+              }
+            }
+          }
+        }
+      }
+
+      // Add new usage entries for newly added files.
+      foreach ($items as $delta => $item) {
+        if (!in_array($item[$delta]['fid'], $original_fids) && !empty($item[$delta]['fid'])) {
+          // Make the file permanent.
+          $file = file_load($item[$delta]['fid']);
+          $file->status = FILE_STATUS_PERMANENT;
+          file_save($file);
+          //  Get the id
+          list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+          // Need to add an entry in the file_usage table.
+          file_usage_add($file, 'issuu', $entity_type, $id);
+
+
+        }
+      }
+    }
+    
+    
+}
+
+/**
+ * Implements hook_field_delete().
+ */
+function issuu_field_delete($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  if ($instance['widget']['type'] == 'issuu_file') {
+    foreach ($items as $delta => $item) {
+      $file = (object) $item;
+      $file_usage = file_usage_list($file);
+      if ($file->status == 0 || !empty($file_usage['issuu'])) {
+		if (issuu_api_delete($item['doc_id']) && empty($instance['settings']['delete_issuu_doc_on_delete'])) {
+          drupal_set_message(t('The file has been removed from issuu.'));
+          list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+          file_usage_delete($file, 'issuu', $entity_type, $id);
+          file_delete($file);
+        }
+      }
+    }
+  }
+  
+}
+
+function issuu_api_upload($file, $doc_id, $entity) {
+  
+  // Initialize variables
+  //mail('@geeksperhr.com','file data in issue.module file', print_r($entity, true));
+  $filepath = '';
+  $access = 'public';
+  $rev_id = NULL;
+  
+  $filepath = drupal_realpath($file->uri);
+  
+  if (!file_exists($filepath)) {
+    return FALSE; 
+  }
+  $access = file_uri_scheme($file->uri);
+
+  if (!empty($doc_id)) {
+    $rev_id = (int)$doc_id;
+  }
+  
+  $params = array(
+    'file'      => '@' . $filepath,
+    'access'    => $access,
+    'rev_id'    => $rev_id
+  );
+  //add thumb for node
+  $path = drupal_realpath($file->uri).'[0]';// get pdf file path
+  $record['pdffid'] = $file->fid;
+  $thumbFile = add_pdf_thumb($path);
+  $record['fid'] = $thumbFile->fid;
+//add to issuuthumb db record
+  issuu_db_thumb($record);
+//End of adding thumb to db 
+  $api = _issuu_get_api_class();
+  return $api->upload($params, $file, $entity);
+  
+}
+/**
+* create pdf file
+* server must install imagemagick and php5-imagick package
+*
+*/
+
+function add_pdf_thumb($path){
+
+	$dir_name = drupal_realpath('public://')."/issuu_cover_images";
+	if(!is_dir($dir_name)){
+		mkdir($dir_name,0755);
+	}
+
+	$jpg_image =$dir_name.'/image-'.time().'.jpg';		 
+	$command1 = escapeshellarg($path)." ". escapeshellarg($jpg_image);
+	exec('convert '.$command1, $output, $error);
+	if (file_exists($jpg_image)) {
+		//resize the image
+		$thumbInfo = issuu_resize_image($jpg_image);
+		if(isset($thumbInfo)){
+			return issuu_save_image($thumbInfo);
+		}else{
+			return NULL;
+		}
+	}else{
+		return NULL;
+	}
+
+}
+
+function issuu_api_delete($doc_id) {
+  if (!empty($doc_id)) {
+    $api = _issuu_get_api_class();
+    return $api->delete($doc_id);
+  }
+}
+
+/**
+ * Utility function to get an instance of the issuu API class.
+ */
+function _issuu_get_api_class() {
+  static $api;
+  if ($api instanceof issuu) {
+    return $api;
+  }
+  require_once drupal_get_path('module', 'issuu') . '/includes/issuu.php';
+  $api = new issuu(variable_get('issuu_api_key', NULL), variable_get('issuu_api_secret', NULL));
+  return $api;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function issuu_theme() {
+  return array(
+    'issuu_formatter' => array(
+      'variables' => array('item' => NULL),
+    ),
+    'issuu_teaser' => array(
+      'variables' => array('item' => NULL),
+    ),
+    'node__issuu_teaser' => array(
+	    'render element' => 'content',
+	    'base hook' => 'node',
+	    'template' => 'node--issuu-teaser',
+	    'path' => drupal_get_path('module', 'issuu'),
+	   ),
+  );
+}
+
+function theme_issuu_formatter($variables) {
+	
+   // Set height
+  $height = variable_get('issuu_reader_height', '');
+
+  // Set width
+  $width = variable_get('issuu_reader_width', '');
+  
+  // Set mode
+  $mode = variable_get('issuu_reader_mode', '');
+  
+  // Set page
+  $page = variable_get('issuu_reader_page', '');
+  
+  // Set allow_share
+  $allow_share = variable_get('issuu_allow_sharing', '');
+
+
+
+  $doc_id = $variables['item']['doc_id'];
+  $access_key = $variables['item']['access_key'];
+
+	$output = array(
+	'<object width="'.$width.'" height="'.$height.'" type="application/x-shockwave-flash" id="issuuViewer2" data="http://static.issuu.com/webembed/viewers/style1/v2/IssuuReader.swf">',
+	'<param name="allowfullscreen" value="true">',
+	'<param name="allowScriptAccess" value="always">',
+	'<param name="menu" value="false">',
+	'<param name="wmode" value="transparent">',
+	'<param name="flashvars" value="jsAPIClientDomain=issuu.com&amp;mode=mini&amp;documentId='.$doc_id.'">',
+	'</object>'
+	);
+
+  return implode("\n", $output);
+}
+
+
+
+function theme_issuu_teaser($variables) {
+	
+
+   // Set height
+  $theight = variable_get('issuu_teaser_height', '');
+
+  // Set width
+  $twidth = variable_get('issuu_teaser_width', '');
+  $output = "";
+  if(isset($variables['item']['entity']) && !empty($variables['item']['entity']->field_teaser)){
+	$img_url = $variables['item']['entity']->field_teaser['und'][0]['uri'];
+	$output = '<a href="'.url('node/'.$variables['item']['entity']->nid).'"><img src="'. file_create_url($img_url).'" /></a>';
+  }
+ 
+ return $output;//print_r($variables,true);
+}
+
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function issuu_field_formatter_info() {
+  return array(
+    'issuu_default' => array(
+      'label' => t('issuu'),
+      'description' => t('An embedded issuu document'),
+      'field types' => array('issuu'),
+    ),
+    'issuu_teaser' => array(
+      'label' => t('issuu_teaser'),
+      'description' => t('An embedded issuu document teaser'),
+      'field types' => array('issuu'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function issuu_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  $settings = $display['settings'];
+  
+  switch ($display['type']) {
+   case 'issuu_default':
+      foreach ($items as $delta => $item) {
+        $element[$delta] = array(
+          '#theme' => 'issuu_formatter',
+          '#item' => $item,
+        );
+      }
+   break;
+   case 'issuu_teaser':
+      foreach ($items as $delta => $item) {
+        $element[$delta] = array(
+          '#theme' => 'issuu_teaser',
+          '#item' => $item,
+        );
+      }
+   break;
+  }
+
+  return $element;
+}
+
+
+function issuu_field_formatter_prepare_view($entity_type, $entities, $field, $instances, $langcode, &$items, $displays) {
+  foreach ($entities as $id => $entity) {
+    $items[$id] = issuu_entity_load_field($entity, $field);
+  }
+}
+
+function issuu_entity_load_field($entity, $field) {
+  $items = array();
+  $doc_id_field = $field['field_name'] . "_doc_id";
+  $access_key_field = $field['field_name'] . "_access_key";
+  $field_table = '{field_data_' . $field['field_name'].'}';
+  $select  = "SELECT " . $doc_id_field . " AS doc_id, " . $access_key_field . " AS access_key FROM " . $field_table . " WHERE  revision_id = :rid";
+  $result = db_query($select, array(':rid' => $entity->vid));
+  foreach ($result as $record) {
+    $items[] = array('entity'=>$entity,'doc_id' => $record->doc_id, 'access_key' => $record->access_key);
+  }
+  return $items;
+}
+
+/**
+* Implements hook_entity_info_alter().
+*/
+function issuu_entity_info_alter(&$entity_info) {
+  $entity_info['node']['view modes']['issuu_teaser'] = array(
+    'label' => t('Issuu Teaser'),
+    'custom settings' => TRUE,
+  );
+}
+
+/**
+* Implements hook_preprocess_node().
+*/
+function issuu_preprocess_node(&$variables) {
+  if($variables['view_mode'] == 'issuu_teaser') {
+	$variables['link_image_thumb']= issuu_node_teaser_image((int)$variables['nid']);
+    $variables['theme_hook_suggestions'][] = 'node__issuu_teaser';
+    $variables['imageWidth'] = variable_get('issuu_teaser_width', '350');
+    $variables['imageHeight'] = variable_get('issuu_teaser_height', '550');
+  }
+}
+
+/**
+* Get image link for nid.
+*/
+function issuu_node_teaser_image($nid) {
+	$imageLink = NULL;
+	$query = db_select('file_usage', 'u'); 
+	$query->condition('u.id',$nid);
+	$query->join('issuuthumb', 'i', 'i.pdffid = u.fid');
+	$query->join('file_managed', 'f', 'f.fid = i.fid');
+	$query->condition('f.filemime','image/jpg');	
+    $query->orderBy('f.fid','DESC');
+	$query->range(0, 1);
+	$query->groupBy('f.fid');
+	$query->fields("f", array("uri"));
+    $results = $query->execute();
+	foreach ($results as $value) {
+		if(isset($value->uri)){
+			return file_create_url($value->uri);
+		}
+	}
+	return $imageLink;
+}
+
+/*
+* @input image 
+*return resized image link
+*/
+function issuu_resize_image($image) {
+	$fileImageInfo = array();
+	$imageName = 'issuu-'.time().'.jpg';
+	$img = file_get_contents($image);
+	$im = imagecreatefromstring($img);
+	$width = imagesx($im);
+	$height = imagesy($im);
+	// set the default dimensions.
+	$imgWidth   = variable_get('issuu_teaser_width', '350');
+	$imgHeight  = variable_get('issuu_teaser_width', '350');
+	if ($width <= $imgWidth) {
+		$imgWidth   = $width;
+        $imgHeight  = $height;
+	} else {
+	    if( $width >= $height ) {
+	       // set $imgWidth to $imgDimsMax and resize $imgHeight proportionately
+	        $aspectRatio    = $imgWidth / $width;
+	        $imgHeight      = floor ( $height * $aspectRatio );
+	    } else if( $width < $height ) {
+	        // set $imgHeight to $imgDimsMax and resize $imgWidth proportionately
+	        $aspectRatio    = $imgHeight / $height;
+	        $imgWidth       = floor ( $width * $aspectRatio );
+		}
+	}
+
+	$newwidth = $imgWidth;
+
+	$newheight = $imgHeight;
+
+	$thumb = imagecreatetruecolor($newwidth, $newheight);
+
+	imagecopyresized($thumb, $im, 0, 0, 0, 0, $newwidth, $newheight, $width, $height);
+	$dir_name = drupal_realpath('public://')."/issuu_cover_images";
+	
+	$imagePath = $dir_name.'/'.$imageName;
+
+	if(imagejpeg($thumb,$imagePath)){ //save image as jpg
+		imagedestroy($thumb); 
+		imagedestroy($im);
+		unlink($image);//delete origin file
+		$fileImageInfo['name'] = $imageName;
+		$fileImageInfo['path'] = $imagePath;
+		return $fileImageInfo;
+	}else {
+		imagedestroy($thumb); 
+		imagedestroy($im);
+		unlink($image);//delete origin file
+		return $fileImageInfo;
+	}
+	
+}
+
+/**
+* Save image file to db
+*return array of saved file info
+*/
+function issuu_save_image($image) {
+	$file = new stdClass;
+	$file->filename = $image['name'];
+	$file->uri = 'public://'.'/issuu_cover_images/'.$image['name'];
+	$file->filemime = 'image/jpg';
+	$file->filesize = filesize($image['path']);
+	$file->status = 1;
+	return file_save($file);
+}
+
+/**
+* add or update a record to issuuthumb table
+*/
+function issuu_db_thumb($record){
+	//check if record exist
+	$result = db_select('issuuthumb', 'i')
+	  ->fields('i', array('pdffid'))
+	  ->condition('pdffid', $record['pdffid'])
+	  ->range(0, 1)
+	  ->execute()
+	  ->rowCount();
+	if ($result) {
+	    //update record
+	     db_update('issuuthumb') // Table name no longer needs {}
+		  ->fields(array(
+		    'fid' => $record['fid'],
+		  ))
+		  ->condition('pdffid', $record['pdffid'])
+		  ->execute();
+	}else{
+		//insert new record
+		$nid = db_insert('issuuthumb') // Table name no longer needs {}
+		->fields(array(
+		  'pdffid' => $record['pdffid'],
+		  'fid' => $record['fid'],
+		))
+		->execute();	
+	}
+
+}
