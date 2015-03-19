@@ -40,8 +40,47 @@ class Issuu {
 	 }
 
 
-    function document_embed($params){
 
+
+
+
+	function upload($params, $file = NULL, $entity) {
+
+		$action = "issuu.document.upload";
+		
+		$this->url = $this->upload_url;
+
+		$result = $this->postRequest($action, $params, $file= NULL, $entity);
+
+		return $result;
+
+	}
+
+
+
+
+
+	function uploadFromUrl($url, $doc_type = null, $access = null, $rev_id = null) {
+
+		$action = "issuu.document.upload";
+
+		$params['url'] = $url;
+
+		$params['access'] = $access;
+
+		$params['rev_id'] = $rev_id;
+
+		$params['doc_type'] = $doc_type;
+
+        $data_array = $this->postRequest($action, $params);
+
+		return $data_array;
+
+	}
+
+
+    function document_embed($params){
+	
 	    $action = "issuu.document_embed.add";
 
         $data_array = $this->postRequestEmbed($action, $params);
@@ -92,7 +131,7 @@ class Issuu {
 
 		}
 
-
+    
 
 		$secret = $this->secret;
 
@@ -105,69 +144,31 @@ class Issuu {
 		}
 
 		$request_url = $this->url;
-
+		
 	    $xml = _issuu_request($request_url, $post_params, "GET");
 		$xml_parse = @simplexml_load_string($xml);
 		$json = json_encode($xml_parse);
 		$result = @json_decode($json,TRUE);
-
+		
 		if(!empty($result))
 		{
-
+			
 			$result = array(
 			'dataConfigId' => array(
 				0 => @$result['documentEmbed']['@attributes']['dataConfigId'],
 				)
-
+			
 			);
-
-
-
+			
+			
+			
 			return $result;
-
+			
 		}
-
+			
 		return $result;
 
 	}
-
-
-
-
-	function upload($params, $file = NULL, $entity) {
-
-		$action = "issuu.document.upload";
-		
-		$this->url = $this->upload_url;
-
-		$result = $this->postRequest($action, $params, $file= NULL, $entity);
-
-		return $result;
-
-	}
-
-
-
-
-
-	function uploadFromUrl($url, $doc_type = null, $access = null, $rev_id = null) {
-
-		$action = "issuu.document.upload";
-
-		$params['url'] = $url;
-
-		$params['access'] = $access;
-
-		$params['rev_id'] = $rev_id;
-
-		$params['doc_type'] = $doc_type;
-
-        $data_array = $this->postRequest($action, $params);
-
-		return $data_array;
-
-	}
-
 
 
 	function getList(){
@@ -175,6 +176,7 @@ class Issuu {
 		$action = "issuu.documents.list";
 		
 		$this->url = $this->request_url;
+		//$this->url = 'http://api.issuu.com/1_0';
 
 		$result = $this->postRequest($action, $params);
 
@@ -325,13 +327,8 @@ class Issuu {
 
 	}
 
-   
-	
-	
-	
-	
 
-	function postRequest($action, $params, $file= array(), $entity) {
+	function postRequest($action, $params, $file= array(),$entity) {
 
 		$params['apiKey'] = $this->apiKey;
 
@@ -387,18 +384,17 @@ class Issuu {
 
 		$request_url = $this->url;
 
-		if (isset($post_params['file'])) {	
-	    	$xml = _issuu_request($request_url, $post_params, "POST");
+		if (isset($post_params['file'])) {
+		
+	    	$xml = _issuu_request($request_url, $post_params, "POST");		  	  
          
 		}
 
 		else {
 
-		  $xml = _issuu_request($request_url, $post_params, "GET");
+		    $xml = _issuu_request($request_url, $post_params, "GET");
 
 		}
-       
-	    
 	   
 		$xml_parse = @simplexml_load_string($xml);
 		$json = json_encode($xml_parse);
@@ -446,8 +442,6 @@ class Issuu {
 		}
 
 		$str = $secret . $str;
-
-
 
 		return md5($str);
 
@@ -608,8 +602,6 @@ function sxiToArray($sxi){
 
 
 function _issuu_request($request_url, $params = NULL, $action = 'GET') {
-
-
 
   if (variable_get('issuu_log_requests', 0) && $params) {
 

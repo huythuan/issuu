@@ -402,6 +402,7 @@ function issuu_field_presave($entity_type, $entity, $field, $instance, $langcode
           // Set the doc_id and access_key variables with the result values
           if (!empty($results['doc_id'][0])) {
             $items[$delta]['doc_id'] = $results['doc_id'][0];
+            			
           }
           if (!empty($results['access_key'][0])) {
             $items[$delta]['access_key'] = $results['access_key'][0];
@@ -621,6 +622,20 @@ function issuu_api_delete($doc_id) {
   }
 }
 
+function issuu_cron(){
+	$params['documentId'] = '150209224701-4f989520d0c84945bd28d3324980b8f9';
+	
+	$params['readerStartPage'] = '1';
+	
+	$params['width'] = variable_get('issuu_reader_width', '650');
+	
+	$params['height'] = variable_get('issuu_reader_height', '500');
+	$api = _issuu_get_api_class();
+	$result = $api->document_embed($params);
+	print_r($result);
+}
+
+
 /**
  * Utility function to get an instance of the issuu API class.
  */
@@ -675,7 +690,22 @@ function theme_issuu_formatter($variables) {
 
   $doc_id = $variables['item']['doc_id'];
   $access_key = $variables['item']['access_key'];
+//get the data-configid for html 5 output
+ 	$params['documentId'] =  $doc_id ;
 
+	$params['readerStartPage'] = '1';
+
+	$params['width'] = variable_get('issuu_reader_width', '650');
+
+	$params['height'] = variable_get('issuu_reader_height', '500');
+	$api = _issuu_get_api_class();
+	$result = $api->document_embed($params);
+	
+// output html 5 
+$output = array('<div data-configid="'.$result['dataConfigId'][0].'" style="width: '.$width.'px; height: '.$height.'px;" class="issuuembed"></div><script type="text/javascript" src="//e.issuu.com/embed.js" async="true"></script>');
+
+/*
+//the older version of output
 	$output = array(
 	'<object width="'.$width.'" height="'.$height.'" type="application/x-shockwave-flash" id="issuuViewer2" data="http://static.issuu.com/webembed/viewers/style1/v2/IssuuReader.swf">',
 	'<param name="allowfullscreen" value="true">',
@@ -685,7 +715,7 @@ function theme_issuu_formatter($variables) {
 	'<param name="flashvars" value="jsAPIClientDomain=issuu.com&amp;mode=mini&amp;documentId='.$doc_id.'">',
 	'</object>'
 	);
-
+*/
   return implode("\n", $output);
 }
 
@@ -834,7 +864,8 @@ function issuu_resize_image($image) {
 	$height = imagesy($im);
 	// set the default dimensions.
 	$imgWidth   = variable_get('issuu_teaser_width', '350');
-	$imgHeight  = variable_get('issuu_teaser_width', '350');
+	$imgWidth   = (int)$imgWidth * 3;
+	$imgHeight  = $imgWidth;
 	if ($width <= $imgWidth) {
 		$imgWidth   = $width;
         $imgHeight  = $height;
@@ -861,7 +892,7 @@ function issuu_resize_image($image) {
 	
 	$imagePath = $dir_name.'/'.$imageName;
 
-	if(imagejpeg($thumb,$imagePath)){ //save image as jpg
+	if(imagejpeg($thumb,$imagePath,100)){ //save image as jpg
 		imagedestroy($thumb); 
 		imagedestroy($im);
 		unlink($image);//delete origin file

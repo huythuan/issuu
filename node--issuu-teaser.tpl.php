@@ -85,7 +85,7 @@
       <a href="<?php print $node_url; ?>"><?php print $title; ?></a>
     </h2>
         <?php if ($link_image_thumb): ?>
-        <div class="issuu_thumb"><a href="<?php print $node_url; ?>"><img src="<?php print $link_image_thumb;?>" width="<?php print $imageWidth;?>" height="<?php print $imageHeight;?>" alt="<?php print $title; ?>"/></a></div>
+        <div class="issuu_thumb"><a href="<?php print $node_url; ?>"><img src="<?php print $link_image_thumb;?>" width="<?php print $imageWidth;?>" height="auto" alt="<?php print $title; ?>"/></a></div>
         <?php endif; ?>
   <?php endif; ?>
   <?php print render($title_suffix); ?>

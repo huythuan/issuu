@@ -34,102 +34,12 @@ class Issuu {
 
 		$this->secret = $secret;
 
-		$this->url = "http://api.issuu.com/1_0?";
+		$this->url = "http://api.issuu.com/1_0";
 		$this->upload_url = "http://upload.issuu.com/1_0";
 
 	 }
 
 
-    function document_embed($params){
-
-	    $action = "issuu.document_embed.add";
-
-        $data_array = $this->postRequestEmbed($action, $params);
-
-		return $data_array;
-   }
-
-
-	function postRequestEmbed($action, $params) {
-
-		$params['apiKey'] = $this->apiKey;
-
-		$params['action'] = $action;
-
-		$params['session_key'] = $this->session_key;
-
-		$params['my_user_id'] = $this->my_user_id;
-
-
-
-		foreach ($params as $key => $val) {
-
-			if ($val == null)
-
-				unset($params[$key]);
-
-		}	
-
-
-
-		$post_params = array();
-
-		foreach ($params as $key => $val) {
-
-			if (is_array($val)) {
-
-			  $val = implode(',', $val);
-
-			}
-
-			if ($key != 'file' && substr($val, 0, 1) == "@") {
-
-				$val = chr(32).$val;
-
-			}
-
-			$post_params[$key] = $val;
-
-		}
-
-
-
-		$secret = $this->secret;
-
-		//add
-
-		if ($secret) {
-
-		  $post_params['signature'] = $this->generate_sig($params, $secret);
-
-		}
-
-		$request_url = $this->url;
-
-	    $xml = _issuu_request($request_url, $post_params, "GET");
-		$xml_parse = @simplexml_load_string($xml);
-		$json = json_encode($xml_parse);
-		$result = @json_decode($json,TRUE);
-
-		if(!empty($result))
-		{
-
-			$result = array(
-			'dataConfigId' => array(
-				0 => @$result['documentEmbed']['@attributes']['dataConfigId'],
-				)
-
-			);
-
-
-
-			return $result;
-
-		}
-
-		return $result;
-
-	}
 
 
 
